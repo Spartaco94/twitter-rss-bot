@@ -29,46 +29,47 @@ jobs:
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
 
-          # --- elenco blog + hashtag (modifica qui se vuoi) ---
+          # --- elenco blog + hashtag ---
           FEEDS_JSON: |
             [
               {
                 "name": "Crypto Radar Daily",
                 "feed": "https://cryptoradarboard.blogspot.com/feeds/posts/default",
-                "tags": "#Crypto #Bitcoin #DeFi #Blockchain"
+                "tags": "🔗 #Crypto #Bitcoin #DeFi #Blockchain"
               },
               {
                 "name": "Tech Trends Daily",
                 "feed": "https://techtrendsdailyboard.blogspot.com/feeds/posts/default",
-                "tags": "#Tech #AI #Innovation"
+                "tags": "🤖 #Tech #AI #Innovation"
               },
               {
                 "name": "NomadVibes",
                 "feed": "https://nomadvibesboard.blogspot.com/feeds/posts/default",
-                "tags": "#Travel #DigitalNomad"
+                "tags": "🌍 #Travel #DigitalNomad"
               },
               {
                 "name": "Healthy Eating Hub",
                 "feed": "https://healthyeatsboard.blogspot.com/feeds/posts/default",
-                "tags": "#Healthy #Nutrition"
+                "tags": "🥗 #Healthy #Nutrition"
               },
               {
                 "name": "Fitness Home Journal",
                 "feed": "https://fitnesshomejournal.blogspot.com/feeds/posts/default",
-                "tags": "#Fitness #Workout"
+                "tags": "🏋️ #Fitness #Workout"
               },
               {
                 "name": "GreenPlanet News",
                 "feed": "https://greenplanetpins.blogspot.com/feeds/posts/default",
-                "tags": "#Climate #Sustainability"
+                "tags": "🌿 #Climate #Sustainability"
               },
               {
                 "name": "PetCare Updates",
                 "feed": "https://petcareinspo.blogspot.com/feeds/posts/default",
-                "tags": "#PetCare #Dogs #Cats"
+                "tags": "🐾 #PetCare #Dogs #Cats"
               }
             ]
         run: |
+          python - <<'PY'
           import os, json, re, time, pathlib
           import feedparser, tweepy
 
@@ -81,56 +82,61 @@ jobs:
           )
           api = tweepy.API(auth)
 
-          # --- stato ---
+          # --- stato per evitare duplicati ---
           STATE_PATH = pathlib.Path("state.json")
           state = json.loads(STATE_PATH.read_text()) if STATE_PATH.exists() else {}
 
-          def clean(s): return re.sub(r"\s+"," ", s).strip()
+          def clean(s): 
+              return re.sub(r"\s+"," ", s).strip()
 
           def build_tweet(title, link, tags, max_len=270):
-            base = f"{title} {tags} {link}"
-            if len(base) <= max_len: return base
-            room = max_len - len(tags) - len(link) - 2
-            short = (title[:room-1]+"…") if room>10 else title[:room]
-            return f"{short} {tags} {link}"
+              # lascia qualche carattere di buffer
+              base = f"{title} {tags} {link}"
+              if len(base) <= max_len:
+                  return base
+              room = max_len - len(tags) - len(link) - 2
+              short = (title[:room-1] + "…") if room > 10 else title[:room]
+              return f"{short} {tags} {link}"
 
           feeds = json.loads(os.environ["FEEDS_JSON"])
           changed = False
           posted = 0
 
           for f in feeds:
-            name, url, tags = f["name"], f["feed"], f["tags"]
-            print(f"→ Checking {name}: {url}")
-            d = feedparser.parse(url)
-            if not d.entries:
-              print(f"  (no entries)")
-              continue
+              name, url, tags = f["name"], f["feed"], f["tags"]
+              print(f"→ Checking {name}: {url}")
+              d = feedparser.parse(url)
+              if not d.entries:
+                  print("  (no entries)")
+                  continue
 
-            latest = d.entries[0]
-            uid = getattr(latest, "id", latest.link)
-            if state.get(name) == uid:
-              print("  (no new post)")
-              continue
+              latest = d.entries[0]
+              uid = getattr(latest, "id", latest.link)
 
-            title = clean(latest.title)
-            link = latest.link
-            tweet = build_tweet(title, link, tags)
+              if state.get(name) == uid:
+                  print("  (no new post)")
+                  continue
 
-            try:
-              api.update_status(status=tweet)
-              print(f"  ✅ Tweeted: {tweet}")
-              state[name] = uid
-              changed = True
-              posted += 1
-              time.sleep(2)
-            except Exception as e:
-              print(f"  ❌ Error tweeting {name}: {e}")
+              title = clean(latest.title)
+              link = latest.link
+              tweet = build_tweet(title, link, tags)
+
+              try:
+                  api.update_status(status=tweet)
+                  print(f"  ✅ Tweeted: {tweet}")
+                  state[name] = uid
+                  changed = True
+                  posted += 1
+                  time.sleep(2)  # piccolo delay anti rate-limit
+              except Exception as e:
+                  print(f"  ❌ Error tweeting {name}: {e}")
 
           if changed:
-            STATE_PATH.write_text(json.dumps(state, indent=2))
-            print(f"Saved state.json. Posted {posted} tweets.")
+              STATE_PATH.write_text(json.dumps(state, indent=2))
+              print(f"Saved state.json. Posted {posted} tweets.")
           else:
-            print("Nothing new to tweet.")
+              print("Nothing new to tweet.")
+          PY
 
       - name: Commit state (if changed)
         uses: stefanzweifel/git-auto-commit-action@v5
